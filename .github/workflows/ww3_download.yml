@@ -45,6 +45,11 @@ jobs:
 
       - name: Run WW3 download and conversion
         run: |
+          # Default: download only f000 (analysis/nowcast)
+          # To download multiple forecast hours, uncomment and modify below:
+          # export WW3_FORECAST_HOURS="0-24:3"  # First 24 hours at 3-hour intervals
+          # export WW3_FORECAST_HOURS="0-48:6"  # First 48 hours at 6-hour intervals
+          # export WW3_FORECAST_HOURS="0,6,12,24,48"  # Specific hours
           python download_ww3.py
 
       - name: Check Zarr data size

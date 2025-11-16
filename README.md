@@ -21,19 +21,43 @@ This repository contains a GitHub Actions workflow that:
 
 ## WW3 Model Variables
 
-The WAVE WATCH III model typically includes the following wave parameters:
+The WAVE WATCH III GRIB2 files contain **19 variables** covering waves and wind:
 
-- **HTSGW** - Significant height of combined wind waves and swell (m)
-- **PERPW** - Primary wave mean period (s)
-- **DIRPW** - Primary wave direction (degrees)
-- **WVHGT** - Significant height of wind waves (m)
-- **WVPER** - Mean period of wind waves (s)
-- **WVDIR** - Direction of wind waves (degrees)
-- **SWELL** - Significant height of swell waves (m)
-- **SWPER** - Mean period of swell waves (s)
-- **SWDIR** - Direction of swell waves (degrees)
-- **WIND** - Wind speed at 10m (m/s)
-- **WDIR** - Wind direction (degrees)
+### Wind Parameters
+- **ws** - Wind speed at 10m (m/s)
+- **wdir** - Wind direction from which blowing (degrees true)
+- **u** - U-component of wind (m/s)
+- **v** - V-component of wind (m/s)
+
+### Combined Wave Parameters
+- **swh** - Significant height of combined wind waves and swell (m)
+- **perpw** - Primary wave mean period (s)
+- **dirpw** - Primary wave direction (degrees)
+
+### Wind Wave Parameters
+- **shww** - Significant height of wind waves (m)
+- **mpww** - Mean period of wind waves (s)
+- **wvdir** - Direction of wind waves (degrees)
+
+### Swell Partitions (1st, 2nd, 3rd)
+Each swell partition includes:
+- **shts** - Significant height of swell waves (m) - 1st partition
+- **shts_1** - Significant height of swell waves (m) - 2nd partition
+- **shts_2** - Significant height of swell waves (m) - 3rd partition
+- **mpts** - Mean period of swell waves (s) - 1st partition
+- **mpts_1** - Mean period of swell waves (s) - 2nd partition
+- **mpts_2** - Mean period of swell waves (s) - 3rd partition
+- **swdir** - Direction of swell waves (degrees) - 1st partition
+- **swdir_1** - Direction of swell waves (degrees) - 2nd partition
+- **swdir_2** - Direction of swell waves (degrees) - 3rd partition
+
+### Forecast Hours
+
+WW3 provides forecasts with the following schedule:
+- **f000-f120**: Hourly forecasts (0, 1, 2, ..., 120 hours)
+- **f120-f384**: 3-hourly forecasts (120, 123, 126, ..., 384 hours)
+
+By default, only **f000** (analysis/nowcast) is downloaded. You can configure multiple forecast hours using the `--forecast-hours` option.
 
 ## Repository Structure
 
@@ -92,15 +116,35 @@ pip install -r requirements.txt
 
 ### Running Locally
 
+**Basic Usage (single forecast hour):**
 ```bash
-# Download and convert latest WW3 data
+# Download and convert latest WW3 analysis (f000)
+python download_ww3.py
+```
+
+**Download Multiple Forecast Hours:**
+```bash
+# Download first 24 hours at 3-hour intervals (f000, f003, f006, ..., f024)
+python download_ww3.py --forecast-hours "0-24:3"
+
+# Download specific hours (f000, f006, f012, f024)
+python download_ww3.py --forecast-hours "0,6,12,24"
+
+# Download first 5 days at 6-hour intervals
+python download_ww3.py --forecast-hours "0-120:6"
+```
+
+**Using Environment Variable:**
+```bash
+# Set forecast hours via environment variable
+export WW3_FORECAST_HOURS="0-48:3"
 python download_ww3.py
 ```
 
 The script will:
 1. Determine the latest available model run
-2. Download GRIB2 data from NOAA NOMADS
-3. Convert to Zarr format
+2. Download GRIB2 data from NOAA NOMADS (all variables including swell partitions)
+3. Convert to Zarr format with all 19 variables
 4. Save to `data/zarr/ww3_global_YYYYMMDD_HH.zarr/`
 5. Create a `latest.zarr` symlink
 
@@ -114,17 +158,38 @@ ds = xr.open_zarr('data/zarr/latest.zarr')
 
 # View dataset info
 print(ds)
+print(f"Variables: {list(ds.data_vars)}")
+print(f"Dimensions: {dict(ds.dims)}")
 
 # Access variables
-wave_height = ds['HTSGW']  # Significant wave height
-wave_period = ds['PERPW']   # Primary wave period
-wave_direction = ds['DIRPW'] # Primary wave direction
+wave_height = ds['swh']     # Significant wave height (combined waves + swell)
+wave_period = ds['perpw']   # Primary wave mean period
+wave_direction = ds['dirpw'] # Primary wave direction
+wind_speed = ds['ws']       # Wind speed at 10m
+swell_1_height = ds['shts'] # First swell partition height
 
 # Example: Plot global wave heights
 import matplotlib.pyplot as plt
 
-wave_height.isel(time=0).plot(figsize=(12, 6))
-plt.title('Global Significant Wave Height')
+# If multiple time steps, select first
+if 'time' in wave_height.dims:
+    wave_height.isel(time=0).plot(figsize=(12, 6))
+else:
+    wave_height.plot(figsize=(12, 6))
+
+plt.title('Global Significant Wave Height (m)')
+plt.show()
+
+# Example: Compare wind waves vs swell
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+
+ds['shww'].plot(ax=ax1)  # Wind waves
+ax1.set_title('Wind Wave Height (m)')
+
+ds['shts'].plot(ax=ax2)  # Swell (1st partition)
+ax2.set_title('Swell Height (m) - 1st Partition')
+
+plt.tight_layout()
 plt.show()
 ```
 
