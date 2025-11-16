@@ -21,13 +21,7 @@ This repository contains a GitHub Actions workflow that:
 
 ## WW3 Model Variables
 
-The WAVE WATCH III GRIB2 files contain **19 variables** covering waves and wind:
-
-### Wind Parameters
-- **ws** - Wind speed at 10m (m/s)
-- **wdir** - Wind direction from which blowing (degrees true)
-- **u** - U-component of wind (m/s)
-- **v** - V-component of wind (m/s)
+This dataset contains **9 wave-specific variables** from WAVE WATCH III. Wind variables (u, v, ws, wdir) are excluded since they're already available in standard GFS forecasts.
 
 ### Combined Wave Parameters
 - **swh** - Significant height of combined wind waves and swell (m)
@@ -39,17 +33,12 @@ The WAVE WATCH III GRIB2 files contain **19 variables** covering waves and wind:
 - **mpww** - Mean period of wind waves (s)
 - **wvdir** - Direction of wind waves (degrees)
 
-### Swell Partitions (1st, 2nd, 3rd)
-Each swell partition includes:
-- **shts** - Significant height of swell waves (m) - 1st partition
-- **shts_1** - Significant height of swell waves (m) - 2nd partition
-- **shts_2** - Significant height of swell waves (m) - 3rd partition
-- **mpts** - Mean period of swell waves (s) - 1st partition
-- **mpts_1** - Mean period of swell waves (s) - 2nd partition
-- **mpts_2** - Mean period of swell waves (s) - 3rd partition
-- **swdir** - Direction of swell waves (degrees) - 1st partition
-- **swdir_1** - Direction of swell waves (degrees) - 2nd partition
-- **swdir_2** - Direction of swell waves (degrees) - 3rd partition
+### Swell Parameters (1st partition)
+- **shts** - Significant height of swell waves (m)
+- **mpts** - Mean period of swell waves (s)
+- **swdir** - Direction of swell waves (degrees)
+
+**Note:** 2nd and 3rd swell partitions are not currently extracted due to cfgrib limitations in reading all GRIB message groups. Wind data (u, v, ws, wdir) is excluded to reduce storage and avoid duplicating data already in standard GFS.
 
 ### Forecast Hours
 
@@ -143,9 +132,9 @@ python download_ww3.py
 
 The script will:
 1. Determine the latest available model run
-2. Download GRIB2 data from NOAA NOMADS (all variables including swell partitions)
-3. Convert to Zarr format with all 19 variables
-4. Save to `data/zarr/ww3_global_YYYYMMDD_HH.zarr/`
+2. Download GRIB2 data from NOAA NOMADS
+3. Convert to Zarr format with 9 wave-specific variables (excludes wind)
+4. Save to `data/zarr/ww3_global_YYYYMMDD_HH.zarr/` or `ww3_global_YYYYMMDD_HH_fXXX-fXXX.zarr`
 5. Create a `latest.zarr` symlink
 
 ### Reading Zarr Data
