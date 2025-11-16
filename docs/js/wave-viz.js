@@ -1,0 +1,457 @@
+// Global state
+let map;
+let waveData = null;
+let timeseriesData = null;
+let currentVariable = 'swh';
+let particleSystem = null;
+let heatmapLayer = null;
+
+// Color scales for different variables
+const colorScales = {
+    swh: { min: 0, max: 10, colors: ['#313695', '#4575b4', '#74add1', '#abd9e9', '#e0f3f8', '#ffffbf', '#fee090', '#fdae61', '#f46d43', '#d73027', '#a50026'] },
+    perpw: { min: 0, max: 20, colors: ['#313695', '#4575b4', '#74add1', '#abd9e9', '#e0f3f8', '#ffffbf', '#fee090', '#fdae61', '#f46d43', '#d73027', '#a50026'] },
+    dirpw: { min: 0, max: 360, colors: ['#313695', '#4575b4', '#74add1', '#abd9e9', '#e0f3f8', '#ffffbf', '#fee090', '#fdae61', '#f46d43', '#d73027', '#a50026'] },
+    shww: { min: 0, max: 8, colors: ['#313695', '#4575b4', '#74add1', '#abd9e9', '#e0f3f8', '#ffffbf', '#fee090', '#fdae61', '#f46d43', '#d73027', '#a50026'] },
+    shts: { min: 0, max: 8, colors: ['#313695', '#4575b4', '#74add1', '#abd9e9', '#e0f3f8', '#ffffbf', '#fee090', '#fdae61', '#f46d43', '#d73027', '#a50026'] }
+};
+
+// Initialize the application
+async function init() {
+    // Initialize map
+    map = L.map('map', {
+        center: [0, 180],
+        zoom: 3,
+        minZoom: 2,
+        maxZoom: 8
+    });
+
+    // Add base layer
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Load data
+    await loadData();
+
+    // Set up particle system
+    particleSystem = new ParticleSystem();
+    particleSystem.init();
+
+    // Set up event listeners
+    setupEventListeners();
+
+    // Initial render
+    updateVisualization();
+}
+
+// Load JSON data
+async function loadData() {
+    try {
+        // Load summary first
+        const summary = await fetch('data/summary.json').then(r => r.json());
+        document.getElementById('run-info').textContent =
+            `Run: ${new Date(summary.run_time).toUTCString()}`;
+
+        // Load latest data
+        waveData = await fetch('data/latest_data.json').then(r => r.json());
+        console.log('Loaded wave data:', waveData);
+
+        // Load timeseries data if available
+        if (summary.data_files.timeseries) {
+            timeseriesData = await fetch('data/timeseries_data.json').then(r => r.json());
+            console.log('Loaded timeseries data:', timeseriesData);
+        }
+
+    } catch (error) {
+        console.error('Error loading data:', error);
+        document.getElementById('run-info').textContent = 'Error loading data';
+    }
+}
+
+// Set up event listeners
+function setupEventListeners() {
+    // Variable selection
+    document.getElementById('variable-select').addEventListener('change', (e) => {
+        currentVariable = e.target.value;
+        updateVisualization();
+    });
+
+    // Particle controls
+    document.getElementById('show-particles').addEventListener('change', (e) => {
+        particleSystem.setEnabled(e.target.checked);
+    });
+
+    document.getElementById('particle-count').addEventListener('input', (e) => {
+        particleSystem.setParticleCount(parseInt(e.target.value));
+        document.getElementById('particle-count-label').textContent = e.target.value;
+    });
+
+    document.getElementById('particle-speed').addEventListener('input', (e) => {
+        particleSystem.setSpeed(parseFloat(e.target.value));
+        document.getElementById('particle-speed-label').textContent = e.target.value + 'x';
+    });
+
+    // Map click for forecast
+    map.on('click', handleMapClick);
+
+    // Window resize
+    window.addEventListener('resize', () => {
+        particleSystem.resize();
+    });
+}
+
+// Update visualization
+function updateVisualization() {
+    if (!waveData) return;
+
+    // Remove existing heatmap
+    if (heatmapLayer) {
+        map.removeLayer(heatmapLayer);
+    }
+
+    // Create heatmap points
+    const points = [];
+    const varData = waveData.variables[currentVariable];
+
+    if (!varData) {
+        console.error('Variable not found:', currentVariable);
+        return;
+    }
+
+    for (let i = 0; i < waveData.latitude.length; i++) {
+        for (let j = 0; j < waveData.longitude.length; j++) {
+            const value = varData[i][j];
+            if (value !== null && !isNaN(value)) {
+                points.push({
+                    lat: waveData.latitude[i],
+                    lon: waveData.longitude[j],
+                    value: value
+                });
+            }
+        }
+    }
+
+    // Create colored markers
+    const colorScale = colorScales[currentVariable];
+    heatmapLayer = L.layerGroup();
+
+    // Create a grid of colored rectangles
+    const latStep = waveData.latitude[1] - waveData.latitude[0];
+    const lonStep = waveData.longitude[1] - waveData.longitude[0];
+
+    points.forEach(point => {
+        const color = getColor(point.value, colorScale.min, colorScale.max, colorScale.colors);
+        const bounds = [
+            [point.lat - latStep/2, point.lon - lonStep/2],
+            [point.lat + latStep/2, point.lon + lonStep/2]
+        ];
+
+        L.rectangle(bounds, {
+            color: color,
+            fillColor: color,
+            fillOpacity: 0.6,
+            weight: 0
+        }).addTo(heatmapLayer);
+    });
+
+    heatmapLayer.addTo(map);
+
+    // Update legend
+    updateLegend(currentVariable);
+
+    // Update particle system
+    particleSystem.updateData(waveData, currentVariable);
+}
+
+// Get color for value
+function getColor(value, min, max, colors) {
+    const normalized = Math.max(0, Math.min(1, (value - min) / (max - min)));
+    const index = Math.floor(normalized * (colors.length - 1));
+    return colors[Math.min(index, colors.length - 1)];
+}
+
+// Update legend
+function updateLegend(variable) {
+    const variableNames = {
+        swh: 'Significant Wave Height (m)',
+        perpw: 'Wave Period (s)',
+        dirpw: 'Wave Direction (°)',
+        shww: 'Wind Wave Height (m)',
+        shts: 'Swell Height (m)'
+    };
+
+    document.getElementById('legend-title').textContent = variableNames[variable];
+    document.getElementById('legend-min').textContent = colorScales[variable].min;
+    document.getElementById('legend-max').textContent = colorScales[variable].max;
+}
+
+// Handle map click
+function handleMapClick(e) {
+    if (!timeseriesData) {
+        alert('Time series data not available (single timestep dataset)');
+        return;
+    }
+
+    const lat = e.latlng.lat;
+    const lon = e.latlng.lng;
+
+    // Find nearest grid point
+    const latIdx = findNearestIndex(timeseriesData.latitude, lat);
+    const lonIdx = findNearestIndex(timeseriesData.longitude, lon);
+
+    if (latIdx === -1 || lonIdx === -1) {
+        console.error('Grid point not found');
+        return;
+    }
+
+    showForecast(lat, lon, latIdx, lonIdx);
+}
+
+// Find nearest index in array
+function findNearestIndex(array, value) {
+    let minDist = Infinity;
+    let minIdx = -1;
+
+    for (let i = 0; i < array.length; i++) {
+        const dist = Math.abs(array[i] - value);
+        if (dist < minDist) {
+            minDist = dist;
+            minIdx = i;
+        }
+    }
+
+    return minIdx;
+}
+
+// Show forecast panel
+function showForecast(lat, lon, latIdx, lonIdx) {
+    const panel = document.getElementById('forecast-panel');
+    panel.classList.add('active');
+
+    // Update location info
+    document.getElementById('location-info').innerHTML = `
+        <strong>Location:</strong> ${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E<br>
+        <strong>Grid Point:</strong> ${timeseriesData.latitude[latIdx].toFixed(2)}°, ${timeseriesData.longitude[lonIdx].toFixed(2)}°
+    `;
+
+    // Extract time series for this point
+    const swh = timeseriesData.variables.swh[latIdx][lonIdx];
+    const perpw = timeseriesData.variables.perpw ? timeseriesData.variables.perpw[latIdx][lonIdx] : null;
+    const dirpw = timeseriesData.variables.dirpw ? timeseriesData.variables.dirpw[latIdx][lonIdx] : null;
+
+    // Create chart
+    createForecastChart(timeseriesData.time, swh, perpw, dirpw);
+}
+
+// Close forecast panel
+function closeForecast() {
+    document.getElementById('forecast-panel').classList.remove('active');
+}
+
+// Create forecast chart
+let forecastChart = null;
+
+function createForecastChart(times, swh, perpw, dirpw) {
+    const ctx = document.getElementById('forecast-chart').getContext('2d');
+
+    // Destroy existing chart
+    if (forecastChart) {
+        forecastChart.destroy();
+    }
+
+    // Parse times
+    const labels = times.map(t => new Date(t).toLocaleDateString() + ' ' + new Date(t).toLocaleTimeString());
+
+    const datasets = [{
+        label: 'Significant Wave Height (m)',
+        data: swh,
+        borderColor: '#1e3c72',
+        backgroundColor: 'rgba(30, 60, 114, 0.1)',
+        yAxisID: 'y',
+        tension: 0.4
+    }];
+
+    if (perpw && perpw.some(v => v !== null)) {
+        datasets.push({
+            label: 'Wave Period (s)',
+            data: perpw,
+            borderColor: '#2a5298',
+            backgroundColor: 'rgba(42, 82, 152, 0.1)',
+            yAxisID: 'y1',
+            tension: 0.4
+        });
+    }
+
+    forecastChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            scales: {
+                y: {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    title: {
+                        display: true,
+                        text: 'Wave Height (m)'
+                    }
+                },
+                y1: {
+                    type: 'linear',
+                    display: perpw && perpw.some(v => v !== null),
+                    position: 'right',
+                    title: {
+                        display: true,
+                        text: 'Period (s)'
+                    },
+                    grid: {
+                        drawOnChartArea: false,
+                    },
+                }
+            }
+        }
+    });
+}
+
+// Particle System Class
+class ParticleSystem {
+    constructor() {
+        this.canvas = document.getElementById('particle-canvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.particles = [];
+        this.particleCount = 2000;
+        this.speed = 0.5;
+        this.enabled = true;
+        this.animationId = null;
+        this.data = null;
+        this.variable = 'swh';
+    }
+
+    init() {
+        this.resize();
+        this.createParticles();
+        this.animate();
+    }
+
+    resize() {
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight - 60; // Account for header
+    }
+
+    setEnabled(enabled) {
+        this.enabled = enabled;
+        if (!enabled) {
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        }
+    }
+
+    setParticleCount(count) {
+        this.particleCount = count;
+        this.createParticles();
+    }
+
+    setSpeed(speed) {
+        this.speed = speed;
+    }
+
+    updateData(data, variable) {
+        this.data = data;
+        this.variable = variable;
+    }
+
+    createParticles() {
+        this.particles = [];
+        for (let i = 0; i < this.particleCount; i++) {
+            this.particles.push({
+                x: Math.random() * this.canvas.width,
+                y: Math.random() * this.canvas.height,
+                age: Math.random() * 100
+            });
+        }
+    }
+
+    animate() {
+        if (this.enabled && this.data) {
+            this.ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+            this.particles.forEach(particle => {
+                // Get map bounds
+                const bounds = map.getBounds();
+                const zoom = map.getZoom();
+
+                // Convert particle screen position to lat/lon
+                const point = map.containerPointToLatLng([particle.x, particle.y - 60]);
+                let lat = point.lat;
+                let lon = point.lng;
+
+                // Wrap longitude to 0-360
+                while (lon < 0) lon += 360;
+                while (lon >= 360) lon -= 360;
+
+                // Get wave direction and magnitude at this point
+                const value = this.getValueAtPoint(lat, lon);
+
+                if (value !== null) {
+                    // Move particle based on wave direction (simplified)
+                    // For now, just move based on magnitude and general ocean currents
+                    const magnitude = value / 10; // Normalize
+                    const angle = Math.random() * Math.PI * 2; // Random direction (simplified)
+
+                    particle.x += Math.cos(angle) * magnitude * this.speed;
+                    particle.y += Math.sin(angle) * magnitude * this.speed;
+                } else {
+                    // Random walk for points outside data
+                    particle.x += (Math.random() - 0.5) * this.speed;
+                    particle.y += (Math.random() - 0.5) * this.speed;
+                }
+
+                // Wrap particles around screen
+                if (particle.x < 0) particle.x = this.canvas.width;
+                if (particle.x > this.canvas.width) particle.x = 0;
+                if (particle.y < 0) particle.y = this.canvas.height;
+                if (particle.y > this.canvas.height) particle.y = 0;
+
+                // Age particle
+                particle.age += 1;
+                const alpha = Math.max(0, 1 - particle.age / 100);
+
+                // Draw particle
+                this.ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                this.ctx.fillRect(particle.x, particle.y, 2, 2);
+
+                // Reset old particles
+                if (particle.age > 100) {
+                    particle.age = 0;
+                }
+            });
+        }
+
+        this.animationId = requestAnimationFrame(() => this.animate());
+    }
+
+    getValueAtPoint(lat, lon) {
+        if (!this.data || !this.data.variables[this.variable]) return null;
+
+        // Find nearest grid point
+        const latIdx = findNearestIndex(this.data.latitude, lat);
+        const lonIdx = findNearestIndex(this.data.longitude, lon);
+
+        if (latIdx === -1 || lonIdx === -1) return null;
+
+        const value = this.data.variables[this.variable][latIdx][lonIdx];
+        return value !== null && !isNaN(value) ? value : null;
+    }
+}
+
+// Start the application when page loads
+window.addEventListener('load', init);

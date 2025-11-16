@@ -9,7 +9,21 @@ This repository contains a GitHub Actions workflow that:
 1. **Downloads** the latest WW3 global wave forecast data from NOAA NOMADS
 2. **Converts** GRIB2 format to Zarr for cloud-optimized storage
 3. **Stores** the converted data in this repository for easy access
-4. **Runs automatically** every 6 hours, synchronized with NOAA's model run schedule
+4. **Visualizes** the data on an interactive map with wave particle animations
+5. **Runs automatically** every 6 hours, synchronized with NOAA's model run schedule
+
+## 🌊 Interactive Visualization
+
+**[View Live Visualization →](https://andrewnakas.github.io/WAVE_WATCH_3_to_ZARR/)**
+
+The repository includes an interactive GitHub Pages visualization featuring:
+
+- **Global Wave Map**: Leaflet-based map showing real-time wave conditions
+- **Wave Particle Animation**: Dynamic visualization of wave movement patterns
+- **16-Day Forecast**: Click any point on the map to see the complete forecast time series
+- **Multiple Variables**: Toggle between wave height, period, direction, wind waves, and swell
+
+The visualization automatically updates every 6 hours with the latest forecast data.
 
 ## Data Source
 

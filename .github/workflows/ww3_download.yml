@@ -19,6 +19,8 @@ jobs:
 
     permissions:
       contents: write
+      pages: write
+      id-token: write
 
     steps:
       - name: Checkout repository
@@ -100,6 +102,32 @@ jobs:
             echo "Only $total dataset(s) present, no cleanup needed"
           fi
 
+      - name: Extract web-friendly data for GitHub Pages
+        run: |
+          echo "Extracting web data from Zarr..."
+          # Find the latest zarr directory (excluding symlink)
+          latest_zarr=$(ls -dt data/zarr/*.zarr 2>/dev/null | grep -v "latest.zarr" | head -n 1)
+
+          if [ -n "$latest_zarr" ]; then
+            echo "Processing: $latest_zarr"
+            python extract_web_data.py "$latest_zarr" docs/data
+            echo ""
+            echo "Web data files:"
+            ls -lh docs/data/
+          else
+            echo "Error: No Zarr dataset found"
+            exit 1
+          fi
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
       - name: Upload Zarr dataset as artifact
         uses: actions/upload-artifact@v4
         with:
@@ -126,4 +154,16 @@ jobs:
             echo "**Total Size:** $(du -sh data/zarr/ 2>/dev/null | cut -f1 || echo 'N/A')" >> $GITHUB_STEP_SUMMARY
           else
             echo "⚠️ No Zarr data directory found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### GitHub Pages" >> $GITHUB_STEP_SUMMARY
+          echo "**Visualization:** https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -d "docs/data" ]; then
+            echo "### Web Data" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            ls -lh docs/data/ 2>/dev/null || echo "No files found"
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           fi
