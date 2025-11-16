@@ -78,9 +78,22 @@ The workflow runs on a schedule:
 2. Set up Python 3.11
 3. Install system dependencies (eccodes for GRIB2 support)
 4. Install Python packages (xarray, cfgrib, zarr, etc.)
-5. Download latest WW3 GRIB2 data
-6. Convert to Zarr format
-7. Commit and push Zarr data to repository
+5. Download latest WW3 GRIB2 data (full 16-day forecast, 209 timesteps)
+6. Convert to Zarr format using incremental writing
+7. Upload Zarr dataset as GitHub Actions artifact
+
+### Accessing the Data
+
+**Zarr datasets are stored as GitHub Actions artifacts** (not committed to git due to size):
+
+1. Go to the [Actions tab](../../actions)
+2. Click on the most recent "Download and Convert WW3 Data" workflow run
+3. Download the `ww3-zarr-latest` artifact (bottom of the page)
+4. Extract and use locally
+
+**Retention:** Artifacts are kept for 14 days
+
+**Why artifacts?** The full 16-day Zarr dataset (~2.56 GB) exceeds GitHub's recommended push size limits. Storing in artifacts avoids repository bloat while making data easily downloadable.
 
 ## Local Usage
 
@@ -209,9 +222,9 @@ ww3_global_20251116_00.zarr/
 
 ## Data Retention
 
-- The repository keeps Zarr datasets from recent runs
-- Old GRIB2 files are automatically cleaned up after conversion
-- Consider implementing data retention policies based on storage limits
+- **GitHub Actions artifacts:** 14 days retention
+- **GRIB2 files:** Automatically cleaned up after conversion to save space
+- **Local data:** Managed by user (no automatic cleanup)
 
 ## Monitoring
 

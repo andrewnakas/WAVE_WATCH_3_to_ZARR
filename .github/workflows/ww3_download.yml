@@ -100,32 +100,13 @@ jobs:
             echo "Only $total dataset(s) present, no cleanup needed"
           fi
 
-      - name: Configure Git
-        run: |
-          git config user.name "WW3 Data Bot"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Commit and push Zarr data
-        run: |
-          # Add the zarr data
-          git add data/zarr/
-
-          # Check if there are changes to commit
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            # Get run time for commit message
-            RUN_TIME=$(date -u +"%Y-%m-%d %H:00 UTC")
-
-            # Commit with informative message
-            git commit -m "Update WW3 Zarr data - Run ${RUN_TIME}" \
-                       -m "Automated download and conversion from NOAA NOMADS" \
-                       -m "Workflow: ${GITHUB_WORKFLOW}" \
-                       -m "Run ID: ${GITHUB_RUN_ID}"
-
-            # Push to the current branch
-            git push
-          fi
+      - name: Upload Zarr dataset as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ww3-zarr-latest
+          path: data/zarr/*.zarr
+          retention-days: 14
+          compression-level: 0  # Zarr is already compressed
 
       - name: Upload workflow summary
         if: always()

@@ -73,9 +73,8 @@ coverage.xml
 .dmypy.json
 dmypy.json
 
-# Data files that are too large (if needed)
-# Uncomment if Zarr files become too large for git
-# data/zarr/*.zarr
+# Zarr datasets (too large for git, stored in GitHub Actions artifacts)
+data/zarr/*.zarr
 
 # Keep the data directory structure
 !data/zarr/.gitkeep
