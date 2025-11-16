@@ -25,7 +25,7 @@ def extract_web_data(zarr_path, output_dir):
     print("\n1. Extracting metadata...")
     metadata = {
         'variables': list(ds.data_vars),
-        'dimensions': dict(ds.dims),
+        'dimensions': dict(ds.sizes),
         'bounds': {
             'lat_min': float(ds.latitude.min()),
             'lat_max': float(ds.latitude.max()),
@@ -33,9 +33,9 @@ def extract_web_data(zarr_path, output_dir):
             'lon_max': float(ds.longitude.max())
         },
         'time_range': {
-            'start': str(ds.time.values[0]) if 'time' in ds.dims else str(ds.time.values),
-            'end': str(ds.time.values[-1]) if 'time' in ds.dims and len(ds.time) > 1 else str(ds.time.values),
-            'count': int(ds.dims.get('time', 1))
+            'start': str(ds.time.values[0]) if 'time' in ds.sizes else str(ds.time.values),
+            'end': str(ds.time.values[-1]) if 'time' in ds.sizes and len(ds.time) > 1 else str(ds.time.values),
+            'count': int(ds.sizes.get('time', 1))
         },
         'attributes': {k: str(v) for k, v in ds.attrs.items()}
     }
@@ -52,7 +52,7 @@ def extract_web_data(zarr_path, output_dir):
     sample_lat = 4
     sample_lon = 4
 
-    if 'time' in ds.dims and len(ds.time) > 0:
+    if 'time' in ds.sizes and len(ds.time) > 0:
         latest_ds = ds.isel(time=-1)  # Last timestep
         time_idx = -1
     else:
@@ -69,17 +69,32 @@ def extract_web_data(zarr_path, output_dir):
     latest_data = {
         'latitude': sampled_ds.latitude.values.tolist(),
         'longitude': sampled_ds.longitude.values.tolist(),
-        'time': str(ds.time.values[time_idx]) if 'time' in ds.dims else str(ds.time.values),
+        'time': str(ds.time.values[time_idx]) if 'time' in ds.sizes else str(ds.time.values),
         'variables': {}
     }
 
     # Convert wave variables to lists
     for var in ['swh', 'perpw', 'dirpw', 'shww', 'mpww', 'wvdir', 'shts', 'mpts', 'swdir']:
         if var in sampled_ds:
+            # Get values and ensure it's 2D (lat, lon)
             values = sampled_ds[var].values
-            # Replace NaN with null for JSON
-            values_list = [[None if np.isnan(v) else float(v) for v in row]
-                          for row in values]
+
+            # Squeeze out any singleton dimensions
+            values = np.squeeze(values)
+
+            # Ensure we have a 2D array
+            if values.ndim != 2:
+                print(f"  ⚠ Warning: {var} has {values.ndim} dimensions, expected 2. Skipping.")
+                continue
+
+            # Replace NaN with None for JSON using vectorized operations
+            # Convert to object array to allow None values
+            values_obj = values.astype(object)
+            values_obj[np.isnan(values)] = None
+
+            # Convert to nested list
+            values_list = values_obj.tolist()
+
             latest_data['variables'][var] = values_list
             print(f"  ✓ Extracted {var}: {len(latest_data['latitude'])}x{len(latest_data['longitude'])} grid")
 
@@ -87,10 +102,10 @@ def extract_web_data(zarr_path, output_dir):
         json.dump(latest_data, f)
     print(f"  ✓ Saved latest_data.json ({len(latest_data['latitude'])}x{len(latest_data['longitude'])} grid)")
 
-    # 3. Extract time series data for 16-day forecasts
-    print("\n3. Extracting time series for 16-day forecasts...")
+    # 3. Extract time series data for 5-day forecasts
+    print("\n3. Extracting time series for 5-day forecasts...")
 
-    if 'time' not in ds.dims or len(ds.time) <= 1:
+    if 'time' not in ds.sizes or len(ds.time) <= 1:
         print("  ⓘ Skipping time series (single timestep dataset)")
         time_series = {
             'note': 'Single timestep dataset - no time series available',
@@ -124,18 +139,20 @@ def extract_web_data(zarr_path, output_dir):
                 print(f"  → Processing {var}...")
                 values = sampled_ts[var].values
 
-                # Convert to list format: [lat][lon][time]
-                # Replace NaN with null
-                var_data = []
-                for lat_idx in range(values.shape[1]):  # latitude dimension
-                    lat_row = []
-                    for lon_idx in range(values.shape[2]):  # longitude dimension
-                        time_series_point = [
-                            None if np.isnan(values[t, lat_idx, lon_idx]) else float(values[t, lat_idx, lon_idx])
-                            for t in range(values.shape[0])  # time dimension
-                        ]
-                        lat_row.append(time_series_point)
-                    var_data.append(lat_row)
+                # Expected shape: [time, lat, lon]
+                # We want output: [lat][lon][time]
+                # Transpose to [lat, lon, time]
+                values_transposed = np.transpose(values, (1, 2, 0))
+
+                # Convert to object array to allow None values
+                values_obj = values_transposed.astype(object)
+
+                # Create mask for NaN values
+                nan_mask = np.isnan(values_transposed)
+                values_obj[nan_mask] = None
+
+                # Convert to nested list [lat][lon][time]
+                var_data = values_obj.tolist()
 
                 time_series['variables'][var] = var_data
                 print(f"  ✓ Extracted {var} time series")
@@ -148,16 +165,16 @@ def extract_web_data(zarr_path, output_dir):
     print("\n4. Creating lightweight summary...")
     summary = {
         'run_time': metadata['time_range']['start'],
-        'forecast_length_hours': int(ds.dims.get('time', 1) * 3) if 'time' in ds.dims else 0,
+        'forecast_length_hours': int(ds.sizes.get('time', 1)) if 'time' in ds.sizes else 0,
         'grid_size': {
-            'full': {'lat': ds.dims['latitude'], 'lon': ds.dims['longitude']},
+            'full': {'lat': ds.sizes['latitude'], 'lon': ds.sizes['longitude']},
             'sampled': {'lat': len(latest_data['latitude']), 'lon': len(latest_data['longitude'])}
         },
         'sample_rate': {'lat': sample_lat, 'lon': sample_lon},
         'data_files': {
             'metadata': 'metadata.json',
             'latest': 'latest_data.json',
-            'timeseries': 'timeseries_data.json' if 'time' in ds.dims and len(ds.time) > 1 else None
+            'timeseries': 'timeseries_data.json' if 'time' in ds.sizes and len(ds.time) > 1 else None
         }
     }
 
