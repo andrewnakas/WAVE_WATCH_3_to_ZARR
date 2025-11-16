@@ -1,0 +1,108 @@
+name: Download and Convert WW3 Data
+
+on:
+  # Run every 6 hours (aligns with WW3 model runs at 00, 06, 12, 18 UTC)
+  schedule:
+    - cron: '30 0,6,12,18 * * *'  # 30 minutes after each model run
+
+  # Allow manual triggering
+  workflow_dispatch:
+
+  # Run on pushes to the claude branch (for testing)
+  push:
+    branches:
+      - 'claude/wave-watch-data-pipeline-*'
+
+jobs:
+  download-and-convert:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install system dependencies (eccodes for GRIB2)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libeccodes-dev libeccodes-tools
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run WW3 download and conversion
+        run: |
+          python download_ww3.py
+
+      - name: Check Zarr data size
+        run: |
+          if [ -d "data/zarr" ]; then
+            echo "Zarr data directory size:"
+            du -sh data/zarr/
+            echo ""
+            echo "Zarr files:"
+            ls -lh data/zarr/
+          else
+            echo "No Zarr data found!"
+            exit 1
+          fi
+
+      - name: Configure Git
+        run: |
+          git config user.name "WW3 Data Bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit and push Zarr data
+        run: |
+          # Add the zarr data
+          git add data/zarr/
+
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            # Get run time for commit message
+            RUN_TIME=$(date -u +"%Y-%m-%d %H:00 UTC")
+
+            # Commit with informative message
+            git commit -m "Update WW3 Zarr data - Run ${RUN_TIME}" \
+                       -m "Automated download and conversion from NOAA NOMADS" \
+                       -m "Workflow: ${GITHUB_WORKFLOW}" \
+                       -m "Run ID: ${GITHUB_RUN_ID}"
+
+            # Push to the current branch
+            git push
+          fi
+
+      - name: Upload workflow summary
+        if: always()
+        run: |
+          echo "## WAVE WATCH 3 Data Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Run Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${GITHUB_REF_NAME}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -d "data/zarr" ]; then
+            echo "### Zarr Data" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            ls -lh data/zarr/ 2>/dev/null || echo "No files found"
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Total Size:** $(du -sh data/zarr/ 2>/dev/null | cut -f1 || echo 'N/A')" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ No Zarr data directory found" >> $GITHUB_STEP_SUMMARY
+          fi

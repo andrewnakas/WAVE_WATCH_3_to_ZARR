@@ -1,0 +1,19 @@
+# WAVE WATCH 3 to Zarr conversion requirements
+
+# Core scientific computing
+xarray>=2023.1.0
+numpy>=1.24.0
+pandas>=2.0.0
+
+# GRIB2 file handling
+cfgrib>=0.9.10
+eccodes>=1.5.0
+
+# Zarr storage
+zarr>=2.16.0
+
+# HTTP requests
+requests>=2.31.0
+
+# Additional dependencies for cfgrib
+scipy>=1.10.0
