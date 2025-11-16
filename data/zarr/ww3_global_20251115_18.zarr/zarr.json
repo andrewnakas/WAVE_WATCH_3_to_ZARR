@@ -6,10 +6,10 @@
     "GRIB_subCentre": 0,
     "Conventions": "CF-1.7",
     "institution": "US National Weather Service - NCEP",
-    "history": "2025-11-16T05:51 GRIB to CDM+CF via cfgrib-0.9.15.1/ecCodes-2.44.0 with {\"source\": \"data/grib/gfswave.t18z.global.0p16.f000.grib2\", \"filter_by_keys\": {}, \"encode_cf\": [\"parameter\", \"time\", \"geography\", \"vertical\"]}",
     "source": "NOAA NOMADS - WAVE WATCH III",
-    "download_time": "2025-11-16T05:51:36.028099",
-    "original_file": "gfswave.t18z.global.0p16.f000.grib2"
+    "download_time": "2025-11-16T05:59:34.066159",
+    "original_file": "gfswave.t18z.global.0p16.f000.grib2",
+    "grib_messages": 2
   },
   "zarr_format": 3,
   "consolidated_metadata": {
