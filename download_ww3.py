@@ -193,14 +193,14 @@ def parse_forecast_hours(hours_str):
             # Range specification
             range_parts = part.split('-')
             start = int(range_parts[0])
-            end = int(range_parts[1])
 
-            # Check for step size
+            # Check for step size first
             if ':' in range_parts[1]:
                 end_step = range_parts[1].split(':')
                 end = int(end_step[0])
                 step = int(end_step[1])
             else:
+                end = int(range_parts[1])
                 step = 1
 
             hours.extend(range(start, end + 1, step))
