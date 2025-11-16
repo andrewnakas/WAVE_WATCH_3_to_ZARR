@@ -108,6 +108,7 @@ def download_file(url, output_path, max_retries=3):
 def grib_to_zarr(grib_path, zarr_path):
     """
     Convert GRIB2 file to Zarr format, reading ALL GRIB messages.
+    Filters out wind variables (u, v, ws, wdir) that are already in GFS.
 
     Args:
         grib_path: Path to input GRIB2 file
@@ -115,7 +116,7 @@ def grib_to_zarr(grib_path, zarr_path):
     """
     try:
         logger.info(f"Converting {grib_path} to Zarr format...")
-        logger.info("Reading all GRIB messages (including all swell partitions)...")
+        logger.info("Reading all GRIB messages (wave-specific variables only)...")
 
         # Open ALL datasets in the GRIB2 file
         # cfgrib.open_datasets returns a list of datasets for each hypercube
@@ -134,13 +135,19 @@ def grib_to_zarr(grib_path, zarr_path):
         # Strategy: merge datasets with same coordinates
         merged_ds = xr.merge(datasets, compat='override')
 
-        logger.info(f"Merged into single dataset with {len(merged_ds.data_vars)} variables")
+        # Filter out wind variables (already in standard GFS)
+        wind_vars = ['u', 'v', 'ws', 'wdir']
+        wave_vars = [var for var in merged_ds.data_vars if var not in wind_vars]
+        merged_ds = merged_ds[wave_vars]
+
+        logger.info(f"Kept {len(merged_ds.data_vars)} wave-specific variables (excluded wind: {wind_vars})")
 
         # Add metadata
         merged_ds.attrs['source'] = 'NOAA NOMADS - WAVE WATCH III'
         merged_ds.attrs['download_time'] = datetime.utcnow().isoformat()
         merged_ds.attrs['original_file'] = grib_path.name
         merged_ds.attrs['grib_messages'] = len(datasets)
+        merged_ds.attrs['excluded_variables'] = 'u, v, ws, wdir (available in standard GFS)'
 
         # Remove existing zarr if it exists
         if zarr_path.exists():
@@ -238,7 +245,8 @@ def download_multiple_forecasts(run_time, forecast_hours, grib_dir):
 
 def combine_forecasts_to_zarr(grib_files, zarr_path):
     """
-    Convert multiple GRIB files to a single Zarr dataset.
+    Convert multiple GRIB files to a single Zarr dataset using incremental writing.
+    This processes one timestep at a time to avoid memory issues.
 
     Args:
         grib_files: List of GRIB file paths
@@ -246,11 +254,20 @@ def combine_forecasts_to_zarr(grib_files, zarr_path):
     """
     try:
         logger.info(f"Converting {len(grib_files)} GRIB files to Zarr format...")
+        logger.info("Using incremental writing to manage memory...")
 
-        all_datasets = []
+        # Remove existing zarr if it exists
+        if zarr_path.exists():
+            import shutil
+            shutil.rmtree(zarr_path)
 
-        for grib_file in grib_files:
-            logger.info(f"Processing {grib_file.name}...")
+        zarr_path.parent.mkdir(parents=True, exist_ok=True)
+
+        total_vars = 0
+
+        for idx, grib_file in enumerate(grib_files):
+            if idx % 10 == 0:  # Log progress every 10 files
+                logger.info(f"Processing file {idx + 1}/{len(grib_files)}: {grib_file.name}")
 
             # Read all messages from this GRIB file
             datasets = cfgrib.open_datasets(
@@ -260,40 +277,49 @@ def combine_forecasts_to_zarr(grib_files, zarr_path):
 
             # Merge messages within this file
             merged = xr.merge(datasets, compat='override')
-            all_datasets.append(merged)
 
-            # Close individual datasets
+            # Filter out wind variables (already in standard GFS)
+            wind_vars = ['u', 'v', 'ws', 'wdir']
+            wave_vars = [var for var in merged.data_vars if var not in wind_vars]
+            merged = merged[wave_vars]
+
+            # Add time coordinate if missing (expand to have time dimension)
+            if 'time' not in merged.dims:
+                merged = merged.expand_dims('time')
+
+            if idx == 0:
+                # First file: create the zarr store
+                total_vars = len(merged.data_vars)
+
+                # Add metadata
+                merged.attrs['source'] = 'NOAA NOMADS - WAVE WATCH III'
+                merged.attrs['download_time'] = datetime.utcnow().isoformat()
+                merged.attrs['num_files'] = len(grib_files)
+                merged.attrs['excluded_variables'] = 'u, v, ws, wdir (available in standard GFS)'
+
+                merged.to_zarr(zarr_path, mode='w', compute=True)
+                logger.info(f"Initialized Zarr with {total_vars} wave-specific variables")
+            else:
+                # Subsequent files: append along time dimension
+                merged.to_zarr(zarr_path, mode='a', append_dim='time', compute=True)
+
+            # Close datasets to free memory
             for ds in datasets:
                 ds.close()
+            merged.close()
 
-        # Combine along time dimension
-        logger.info("Combining all forecast hours along time dimension...")
-        combined_ds = xr.concat(all_datasets, dim='time')
-
-        logger.info(f"Combined dataset has {len(combined_ds.data_vars)} variables")
-        logger.info(f"Time steps: {len(combined_ds.time)}")
-
-        # Add metadata
-        combined_ds.attrs['source'] = 'NOAA NOMADS - WAVE WATCH III'
-        combined_ds.attrs['download_time'] = datetime.utcnow().isoformat()
-        combined_ds.attrs['num_files'] = len(grib_files)
-
-        # Remove existing zarr if it exists
-        if zarr_path.exists():
-            import shutil
-            shutil.rmtree(zarr_path)
-
-        # Save to Zarr
-        zarr_path.parent.mkdir(parents=True, exist_ok=True)
-        combined_ds.to_zarr(zarr_path, mode='w')
+            # Free memory
+            del merged
+            del datasets
 
         logger.info(f"Zarr dataset saved to {zarr_path}")
-        logger.info(f"Dataset variables: {sorted(list(combined_ds.data_vars))}")
-        logger.info(f"Total variables: {len(combined_ds.data_vars)}")
 
-        combined_ds.close()
-        for ds in all_datasets:
-            ds.close()
+        # Open final dataset to report stats
+        final_ds = xr.open_zarr(zarr_path)
+        logger.info(f"Dataset variables: {sorted(list(final_ds.data_vars))}")
+        logger.info(f"Total variables: {len(final_ds.data_vars)}")
+        logger.info(f"Time steps: {len(final_ds.time)}")
+        final_ds.close()
 
         return True
 
