@@ -65,6 +65,38 @@ jobs:
             exit 1
           fi
 
+      - name: Cleanup old Zarr datasets (keep last 2)
+        run: |
+          cd data/zarr
+
+          # List all zarr directories sorted by modification time (oldest first)
+          # Exclude the 'latest.zarr' symlink
+          zarr_dirs=$(ls -dt *.zarr 2>/dev/null | grep -v "^latest.zarr$" || true)
+
+          # Count total zarr directories
+          total=$(echo "$zarr_dirs" | grep -v '^$' | wc -l)
+
+          echo "Found $total Zarr dataset(s)"
+
+          if [ "$total" -gt 2 ]; then
+            # Keep only the 2 most recent, delete the rest
+            to_delete=$((total - 2))
+            echo "Keeping most recent 2 datasets, removing $to_delete old dataset(s)..."
+
+            echo "$zarr_dirs" | tail -n "$to_delete" | while read dir; do
+              if [ -d "$dir" ]; then
+                echo "Removing old dataset: $dir"
+                rm -rf "$dir"
+              fi
+            done
+
+            echo ""
+            echo "Remaining Zarr datasets:"
+            ls -lht *.zarr 2>/dev/null | grep -v "^l" || true
+          else
+            echo "Only $total dataset(s) present, no cleanup needed"
+          fi
+
       - name: Configure Git
         run: |
           git config user.name "WW3 Data Bot"
