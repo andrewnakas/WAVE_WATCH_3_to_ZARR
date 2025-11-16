@@ -47,14 +47,14 @@ jobs:
 
       - name: Run WW3 download and conversion
         run: |
-          # Download full 16-day forecast at maximum temporal resolution
-          # f000-f120: hourly (121 steps), f123-f384: 3-hourly (88 steps) = 209 total
-          export WW3_FORECAST_HOURS="0-120,123-384:3"
+          # Download 5-day forecast at hourly resolution (121 timesteps)
+          # This is optimized for GitHub Actions memory limits (~7GB)
+          export WW3_FORECAST_HOURS="0-120"
 
           # Alternative configurations (uncomment to use):
-          # export WW3_FORECAST_HOURS="0"  # Analysis only (smallest)
-          # export WW3_FORECAST_HOURS="0-24:3"  # First 24 hours at 3-hour intervals
-          # export WW3_FORECAST_HOURS="0-48:6"  # First 48 hours at 6-hour intervals
+          # export WW3_FORECAST_HOURS="0"  # Analysis only (smallest, ~18MB)
+          # export WW3_FORECAST_HOURS="0-48"  # 2-day hourly forecast (~500MB)
+          # export WW3_FORECAST_HOURS="0-120,123-384:3"  # Full 16-day forecast (large, may OOM)
           python download_ww3.py
 
       - name: Check Zarr data size
@@ -68,6 +68,15 @@ jobs:
           else
             echo "No Zarr data found!"
             exit 1
+          fi
+
+      - name: Clean up GRIB files
+        run: |
+          # Remove any remaining GRIB files to save disk space
+          if [ -d "data/grib" ]; then
+            echo "Cleaning up GRIB directory..."
+            rm -rf data/grib/*
+            echo "GRIB cleanup complete"
           fi
 
       - name: Cleanup old Zarr datasets (keep only latest)

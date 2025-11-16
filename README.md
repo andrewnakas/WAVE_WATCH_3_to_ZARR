@@ -20,7 +20,7 @@ The repository includes an interactive GitHub Pages visualization featuring:
 
 - **Global Wave Map**: Leaflet-based map showing real-time wave conditions
 - **Wave Particle Animation**: Dynamic visualization of wave movement patterns
-- **16-Day Forecast**: Click any point on the map to see the complete forecast time series
+- **5-Day Forecast**: Click any point on the map to see the complete forecast time series
 - **Multiple Variables**: Toggle between wave height, period, direction, wind waves, and swell
 
 The visualization automatically updates every 6 hours with the latest forecast data.
@@ -92,7 +92,7 @@ The workflow runs on a schedule:
 2. Set up Python 3.11
 3. Install system dependencies (eccodes for GRIB2 support)
 4. Install Python packages (xarray, cfgrib, zarr, etc.)
-5. Download latest WW3 GRIB2 data (full 16-day forecast, 209 timesteps)
+5. Download latest WW3 GRIB2 data (5-day hourly forecast, 121 timesteps)
 6. Convert to Zarr format using incremental writing
 7. Upload Zarr dataset as GitHub Actions artifact
 
@@ -107,7 +107,7 @@ The workflow runs on a schedule:
 
 **Retention:** Artifacts are kept for 14 days
 
-**Why artifacts?** The full 16-day Zarr dataset (~2.56 GB) exceeds GitHub's recommended push size limits. Storing in artifacts avoids repository bloat while making data easily downloadable.
+**Why artifacts?** The 5-day Zarr dataset (~1.0-1.5 GB) exceeds GitHub's recommended push size limits. Storing in artifacts avoids repository bloat while making data easily downloadable.
 
 ## Local Usage
 

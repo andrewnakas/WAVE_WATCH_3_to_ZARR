@@ -265,54 +265,95 @@ def combine_forecasts_to_zarr(grib_files, zarr_path):
 
         total_vars = 0
 
+        processed_count = 0
+        skipped_count = 0
+
         for idx, grib_file in enumerate(grib_files):
             if idx % 10 == 0:  # Log progress every 10 files
                 logger.info(f"Processing file {idx + 1}/{len(grib_files)}: {grib_file.name}")
 
-            # Read all messages from this GRIB file
-            datasets = cfgrib.open_datasets(
-                str(grib_file),
-                backend_kwargs={'indexpath': ''}
-            )
+            try:
+                # Validate file size (GRIB files should be > 1MB)
+                file_size = grib_file.stat().st_size
+                if file_size < 1_000_000:  # Less than 1MB is likely corrupt/incomplete
+                    logger.warning(f"Skipping {grib_file.name} - file too small ({file_size} bytes)")
+                    skipped_count += 1
+                    continue
 
-            # Merge messages within this file
-            merged = xr.merge(datasets, compat='override')
+                # Read all messages from this GRIB file
+                datasets = cfgrib.open_datasets(
+                    str(grib_file),
+                    backend_kwargs={'indexpath': ''}
+                )
 
-            # Filter out wind variables (already in standard GFS)
-            wind_vars = ['u', 'v', 'ws', 'wdir']
-            wave_vars = [var for var in merged.data_vars if var not in wind_vars]
-            merged = merged[wave_vars]
+                # Merge messages within this file
+                merged = xr.merge(datasets, compat='override')
 
-            # Add time coordinate if missing (expand to have time dimension)
-            if 'time' not in merged.dims:
-                merged = merged.expand_dims('time')
+                # Filter out wind variables (already in standard GFS)
+                wind_vars = ['u', 'v', 'ws', 'wdir']
+                wave_vars = [var for var in merged.data_vars if var not in wind_vars]
+                merged = merged[wave_vars]
 
-            if idx == 0:
-                # First file: create the zarr store
-                total_vars = len(merged.data_vars)
+                # Add time coordinate if missing (expand to have time dimension)
+                if 'time' not in merged.dims:
+                    merged = merged.expand_dims('time')
 
-                # Add metadata
-                merged.attrs['source'] = 'NOAA NOMADS - WAVE WATCH III'
-                merged.attrs['download_time'] = datetime.utcnow().isoformat()
-                merged.attrs['num_files'] = len(grib_files)
-                merged.attrs['excluded_variables'] = 'u, v, ws, wdir (available in standard GFS)'
+                if processed_count == 0:
+                    # First valid file: create the zarr store
+                    total_vars = len(merged.data_vars)
 
-                merged.to_zarr(zarr_path, mode='w', compute=True)
-                logger.info(f"Initialized Zarr with {total_vars} wave-specific variables")
-            else:
-                # Subsequent files: append along time dimension
-                merged.to_zarr(zarr_path, mode='a', append_dim='time', compute=True)
+                    # Add metadata
+                    merged.attrs['source'] = 'NOAA NOMADS - WAVE WATCH III'
+                    merged.attrs['download_time'] = datetime.utcnow().isoformat()
+                    merged.attrs['num_files'] = len(grib_files)
+                    merged.attrs['excluded_variables'] = 'u, v, ws, wdir (available in standard GFS)'
 
-            # Close datasets to free memory
-            for ds in datasets:
-                ds.close()
-            merged.close()
+                    merged.to_zarr(zarr_path, mode='w', compute=True)
+                    logger.info(f"Initialized Zarr with {total_vars} wave-specific variables")
+                else:
+                    # Subsequent files: append along time dimension
+                    merged.to_zarr(zarr_path, mode='a', append_dim='time', compute=True)
 
-            # Free memory
-            del merged
-            del datasets
+                # Close datasets to free memory
+                for ds in datasets:
+                    ds.close()
+                merged.close()
+
+                # Free memory
+                del merged
+                del datasets
+
+                processed_count += 1
+
+                # Clean up GRIB file after successful processing to save disk space
+                try:
+                    grib_file.unlink()
+                    logger.debug(f"Cleaned up {grib_file.name}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete {grib_file.name}: {e}")
+
+            except EOFError as e:
+                logger.warning(f"Skipping corrupted file {grib_file.name}: {e}")
+                skipped_count += 1
+                # Try to clean up corrupted file
+                try:
+                    grib_file.unlink()
+                except:
+                    pass
+                continue
+            except Exception as e:
+                logger.warning(f"Error processing {grib_file.name}: {e}")
+                skipped_count += 1
+                continue
 
         logger.info(f"Zarr dataset saved to {zarr_path}")
+        logger.info(f"Successfully processed: {processed_count}/{len(grib_files)} files")
+        if skipped_count > 0:
+            logger.warning(f"Skipped {skipped_count} corrupted/invalid files")
+
+        if processed_count == 0:
+            logger.error("No valid files were processed!")
+            return False
 
         # Open final dataset to report stats
         final_ds = xr.open_zarr(zarr_path)
