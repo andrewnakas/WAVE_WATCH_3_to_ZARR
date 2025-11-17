@@ -104,62 +104,19 @@ function setupEventListeners() {
 function updateVisualization() {
     if (!waveData) return;
 
-    // Remove existing heatmap
+    // Remove existing heatmap if it exists
     if (heatmapLayer) {
         map.removeLayer(heatmapLayer);
+        heatmapLayer = null;
     }
 
-    // Create heatmap points
-    const points = [];
-    const varData = waveData.variables[currentVariable];
-
-    if (!varData) {
-        console.error('Variable not found:', currentVariable);
-        return;
-    }
-
-    for (let i = 0; i < waveData.latitude.length; i++) {
-        for (let j = 0; j < waveData.longitude.length; j++) {
-            const value = varData[i][j];
-            if (value !== null && !isNaN(value)) {
-                points.push({
-                    lat: waveData.latitude[i],
-                    lon: waveData.longitude[j],
-                    value: value
-                });
-            }
-        }
-    }
-
-    // Create colored markers
-    const colorScale = colorScales[currentVariable];
-    heatmapLayer = L.layerGroup();
-
-    // Create a grid of colored rectangles
-    const latStep = waveData.latitude[1] - waveData.latitude[0];
-    const lonStep = waveData.longitude[1] - waveData.longitude[0];
-
-    points.forEach(point => {
-        const color = getColor(point.value, colorScale.min, colorScale.max, colorScale.colors);
-        const bounds = [
-            [point.lat - latStep/2, point.lon - lonStep/2],
-            [point.lat + latStep/2, point.lon + lonStep/2]
-        ];
-
-        L.rectangle(bounds, {
-            color: color,
-            fillColor: color,
-            fillOpacity: 0.6,
-            weight: 0
-        }).addTo(heatmapLayer);
-    });
-
-    heatmapLayer.addTo(map);
+    // Don't create overlay - particles will show wave data instead
+    // This keeps the map tiles visible and readable
 
     // Update legend
     updateLegend(currentVariable);
 
-    // Update particle system
+    // Update particle system with current data
     particleSystem.updateData(waveData, currentVariable);
 }
 
@@ -553,14 +510,15 @@ class ParticleSystem {
                     if (particle.prevX !== null && particle.age < this.maxAge) {
                         const alpha = Math.max(0, 1 - particle.age / this.maxAge);
 
-                        // Color based on wave height - blue for small, white for large
-                        const intensity = Math.min(1, waveData.magnitude / 8);
-                        const r = Math.floor(100 + 155 * intensity);
-                        const g = Math.floor(150 + 105 * intensity);
-                        const b = 255;
+                        // Line width varies with wave height (1-5px)
+                        const lineWidth = 1 + (waveData.magnitude / 2.5) * 4; // 0-10m waves → 1-5px
 
-                        this.ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${alpha * 0.8})`;
-                        this.ctx.lineWidth = 2;
+                        // Brightness varies with wave height - brighter for larger waves
+                        const intensity = Math.min(1, waveData.magnitude / 8);
+                        const brightness = Math.floor(200 + 55 * intensity); // 200-255
+
+                        this.ctx.strokeStyle = `rgba(${brightness}, ${brightness}, 255, ${alpha * 0.7})`;
+                        this.ctx.lineWidth = lineWidth;
                         this.ctx.lineCap = 'round';
                         this.ctx.beginPath();
                         this.ctx.moveTo(particle.prevX, particle.prevY);
