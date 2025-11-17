@@ -5,8 +5,8 @@ This directory contains the GitHub Pages site for visualizing WAVE WATCH 3 globa
 ## Features
 
 - **Interactive Leaflet Map**: Global view of wave conditions
-- **Wave Particle Animation**: Real-time visualization of wave movement patterns
-- **5-Day Forecast**: Click any point on the map to see the full forecast time series
+- **Wave Particle Animation**: Real-time visualization of wave movement patterns using actual wave direction
+- **10-Day Forecast**: Click any point on the map to see the full forecast time series
 - **Multiple Variables**: Toggle between different wave parameters:
   - Significant Wave Height (swh)
   - Wave Period (perpw)
@@ -30,7 +30,7 @@ The `data/` directory contains JSON files generated from the Zarr dataset:
 - `summary.json` - Metadata about the dataset
 - `metadata.json` - Full dataset metadata
 - `latest_data.json` - Latest timestep data (sampled every 4th grid point)
-- `timeseries_data.json` - Time series data for 5-day forecasts
+- `timeseries_data.json` - Time series data for 10-day forecasts
 
 ## Technologies Used
 

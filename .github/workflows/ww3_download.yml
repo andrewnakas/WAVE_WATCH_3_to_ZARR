@@ -47,14 +47,14 @@ jobs:
 
       - name: Run WW3 download and conversion
         run: |
-          # Download 5-day forecast at hourly resolution (121 timesteps)
-          # This is optimized for GitHub Actions memory limits (~7GB)
-          export WW3_FORECAST_HOURS="0-120"
+          # Download 10-day forecast at hourly resolution (241 timesteps)
+          # Optimized for GitHub Actions memory limits (~7GB)
+          export WW3_FORECAST_HOURS="0-240"
 
           # Alternative configurations (uncomment to use):
           # export WW3_FORECAST_HOURS="0"  # Analysis only (smallest, ~18MB)
-          # export WW3_FORECAST_HOURS="0-48"  # 2-day hourly forecast (~500MB)
-          # export WW3_FORECAST_HOURS="0-120,123-384:3"  # Full 16-day forecast (large, may OOM)
+          # export WW3_FORECAST_HOURS="0-120"  # 5-day hourly forecast (~1GB)
+          # export WW3_FORECAST_HOURS="0-120,123-384:3"  # Full 16-day forecast (may OOM)
           python download_ww3.py
 
       - name: Check Zarr data size

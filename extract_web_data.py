@@ -102,8 +102,8 @@ def extract_web_data(zarr_path, output_dir):
         json.dump(latest_data, f)
     print(f"  ✓ Saved latest_data.json ({len(latest_data['latitude'])}x{len(latest_data['longitude'])} grid)")
 
-    # 3. Extract time series data for 5-day forecasts
-    print("\n3. Extracting time series for 5-day forecasts...")
+    # 3. Extract time series data for 10-day forecasts
+    print("\n3. Extracting time series for 10-day forecasts...")
 
     if 'time' not in ds.sizes or len(ds.time) <= 1:
         print("  ⓘ Skipping time series (single timestep dataset)")

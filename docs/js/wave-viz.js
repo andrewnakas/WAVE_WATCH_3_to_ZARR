@@ -334,6 +334,7 @@ class ParticleSystem {
         this.animationId = null;
         this.data = null;
         this.variable = 'swh';
+        this.maxAge = 50; // Particles live for 50 frames
     }
 
     init() {
@@ -345,6 +346,7 @@ class ParticleSystem {
     resize() {
         this.canvas.width = window.innerWidth;
         this.canvas.height = window.innerHeight - 60; // Account for header
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }
 
     setEnabled(enabled) {
@@ -366,6 +368,8 @@ class ParticleSystem {
     updateData(data, variable) {
         this.data = data;
         this.variable = variable;
+        // Clear canvas when data updates
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }
 
     createParticles() {
@@ -374,82 +378,134 @@ class ParticleSystem {
             this.particles.push({
                 x: Math.random() * this.canvas.width,
                 y: Math.random() * this.canvas.height,
-                age: Math.random() * 100
+                age: Math.random() * this.maxAge,
+                prevX: null,
+                prevY: null
             });
         }
     }
 
     animate() {
         if (this.enabled && this.data) {
-            this.ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+            // Fade previous frame instead of clearing
+            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.03)';
             this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
             this.particles.forEach(particle => {
-                // Get map bounds
-                const bounds = map.getBounds();
-                const zoom = map.getZoom();
-
                 // Convert particle screen position to lat/lon
                 const point = map.containerPointToLatLng([particle.x, particle.y - 60]);
                 let lat = point.lat;
                 let lon = point.lng;
 
-                // Wrap longitude to 0-360
+                // Normalize longitude to data range (0-360)
                 while (lon < 0) lon += 360;
                 while (lon >= 360) lon -= 360;
 
-                // Get wave direction and magnitude at this point
-                const value = this.getValueAtPoint(lat, lon);
+                // Get wave data at this point
+                const waveData = this.getWaveDataAtPoint(lat, lon);
 
-                if (value !== null) {
-                    // Move particle based on wave direction (simplified)
-                    // For now, just move based on magnitude and general ocean currents
-                    const magnitude = value / 10; // Normalize
-                    const angle = Math.random() * Math.PI * 2; // Random direction (simplified)
+                if (waveData && waveData.direction !== null && waveData.magnitude !== null) {
+                    // Convert wave direction (meteorological: direction FROM) to radians
+                    // dirpw is in degrees, 0 = from North, 90 = from East
+                    // We want direction TO, so add 180 degrees
+                    const directionTo = (waveData.direction + 180) % 360;
+                    const angleRad = (directionTo - 90) * Math.PI / 180; // Convert to math angle (0 = East)
 
-                    particle.x += Math.cos(angle) * magnitude * this.speed;
-                    particle.y += Math.sin(angle) * magnitude * this.speed;
+                    // Scale velocity by wave height and user speed setting
+                    const velocity = (waveData.magnitude / 5) * this.speed * 2;
+
+                    // Store previous position for trail
+                    particle.prevX = particle.x;
+                    particle.prevY = particle.y;
+
+                    // Update position based on wave direction
+                    particle.x += Math.cos(angleRad) * velocity;
+                    particle.y += Math.sin(angleRad) * velocity;
+
+                    // Age particle
+                    particle.age += 1;
+
+                    // Draw particle trail
+                    if (particle.prevX !== null && particle.age < this.maxAge) {
+                        const alpha = Math.max(0, 1 - particle.age / this.maxAge);
+                        const intensity = Math.min(1, waveData.magnitude / 10);
+
+                        this.ctx.strokeStyle = `rgba(255, 255, 255, ${alpha * 0.5})`;
+                        this.ctx.lineWidth = 1.5;
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(particle.prevX, particle.prevY);
+                        this.ctx.lineTo(particle.x, particle.y);
+                        this.ctx.stroke();
+                    }
+
+                    // Reset particle if too old or out of bounds
+                    if (particle.age > this.maxAge ||
+                        particle.x < 0 || particle.x > this.canvas.width ||
+                        particle.y < 0 || particle.y > this.canvas.height) {
+                        particle.x = Math.random() * this.canvas.width;
+                        particle.y = Math.random() * this.canvas.height;
+                        particle.age = 0;
+                        particle.prevX = null;
+                        particle.prevY = null;
+                    }
                 } else {
-                    // Random walk for points outside data
-                    particle.x += (Math.random() - 0.5) * this.speed;
-                    particle.y += (Math.random() - 0.5) * this.speed;
-                }
-
-                // Wrap particles around screen
-                if (particle.x < 0) particle.x = this.canvas.width;
-                if (particle.x > this.canvas.width) particle.x = 0;
-                if (particle.y < 0) particle.y = this.canvas.height;
-                if (particle.y > this.canvas.height) particle.y = 0;
-
-                // Age particle
-                particle.age += 1;
-                const alpha = Math.max(0, 1 - particle.age / 100);
-
-                // Draw particle
-                this.ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
-                this.ctx.fillRect(particle.x, particle.y, 2, 2);
-
-                // Reset old particles
-                if (particle.age > 100) {
+                    // No data at this location, reset particle
+                    particle.x = Math.random() * this.canvas.width;
+                    particle.y = Math.random() * this.canvas.height;
                     particle.age = 0;
+                    particle.prevX = null;
+                    particle.prevY = null;
                 }
             });
+        } else if (!this.enabled) {
+            // Gradually fade out when disabled
+            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         }
 
         this.animationId = requestAnimationFrame(() => this.animate());
     }
 
-    getValueAtPoint(lat, lon) {
-        if (!this.data || !this.data.variables[this.variable]) return null;
+    getWaveDataAtPoint(lat, lon) {
+        if (!this.data || !this.data.variables.swh || !this.data.variables.dirpw) {
+            return null;
+        }
 
-        // Find nearest grid point
-        const latIdx = findNearestIndex(this.data.latitude, lat);
-        const lonIdx = findNearestIndex(this.data.longitude, lon);
+        // Bilinear interpolation for smooth visualization
+        const latIdx = this.findGridIndex(this.data.latitude, lat);
+        const lonIdx = this.findGridIndex(this.data.longitude, lon);
 
         if (latIdx === -1 || lonIdx === -1) return null;
 
-        const value = this.data.variables[this.variable][latIdx][lonIdx];
-        return value !== null && !isNaN(value) ? value : null;
+        // Get neighboring grid points for interpolation
+        const latIdx0 = latIdx;
+        const latIdx1 = Math.min(latIdx + 1, this.data.latitude.length - 1);
+        const lonIdx0 = lonIdx;
+        const lonIdx1 = Math.min(lonIdx + 1, this.data.longitude.length - 1);
+
+        // Simple nearest-neighbor (can be upgraded to bilinear interpolation)
+        const magnitude = this.data.variables.swh[latIdx0][lonIdx0];
+        const direction = this.data.variables.dirpw[latIdx0][lonIdx0];
+
+        if (magnitude === null || direction === null) return null;
+
+        return { magnitude, direction };
+    }
+
+    findGridIndex(array, value) {
+        // Binary search for efficiency
+        let minDist = Infinity;
+        let minIdx = -1;
+
+        for (let i = 0; i < array.length; i++) {
+            const dist = Math.abs(array[i] - value);
+            if (dist < minDist) {
+                minDist = dist;
+                minIdx = i;
+            }
+        }
+
+        return minIdx;
     }
 }
 
