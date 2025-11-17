@@ -228,19 +228,73 @@ function showForecast(lat, lon, latIdx, lonIdx) {
     const panel = document.getElementById('forecast-panel');
     panel.classList.add('active');
 
-    // Update location info
-    document.getElementById('location-info').innerHTML = `
-        <strong>Location:</strong> ${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E<br>
-        <strong>Grid Point:</strong> ${timeseriesData.latitude[latIdx].toFixed(2)}°, ${timeseriesData.longitude[lonIdx].toFixed(2)}°
-    `;
-
     // Extract time series for this point
     const swh = timeseriesData.variables.swh[latIdx][lonIdx];
     const perpw = timeseriesData.variables.perpw ? timeseriesData.variables.perpw[latIdx][lonIdx] : null;
     const dirpw = timeseriesData.variables.dirpw ? timeseriesData.variables.dirpw[latIdx][lonIdx] : null;
 
+    // Calculate statistics
+    const currentSwh = swh[0];
+    const maxSwh = Math.max(...swh.filter(v => v !== null));
+    const avgSwh = (swh.filter(v => v !== null).reduce((a,b) => a + b, 0) / swh.filter(v => v !== null).length).toFixed(2);
+
+    const currentPeriod = perpw ? perpw[0] : null;
+    const currentDirection = dirpw ? dirpw[0] : null;
+
+    // Get direction string
+    const directionStr = currentDirection !== null ? getDirectionString(currentDirection) : 'N/A';
+
+    // Update location info with comprehensive data
+    document.getElementById('location-info').innerHTML = `
+        <div style="margin-bottom: 10px;">
+            <strong>Location:</strong> ${lat.toFixed(2)}°${lat >= 0 ? 'N' : 'S'}, ${lon.toFixed(2)}°${lon >= 0 ? 'E' : 'W'}<br>
+            <strong>Grid Point:</strong> ${timeseriesData.latitude[latIdx].toFixed(2)}°, ${timeseriesData.longitude[lonIdx].toFixed(2)}°
+        </div>
+        <div style="padding: 10px; background: #f5f5f5; border-radius: 4px; margin-bottom: 10px;">
+            <div style="font-weight: bold; margin-bottom: 5px; color: #1e3c72;">Current Conditions</div>
+            <table style="width: 100%; font-size: 13px;">
+                <tr>
+                    <td><strong>Wave Height:</strong></td>
+                    <td>${currentSwh !== null ? currentSwh.toFixed(2) + ' m' : 'N/A'}</td>
+                </tr>
+                <tr>
+                    <td><strong>Wave Period:</strong></td>
+                    <td>${currentPeriod !== null ? currentPeriod.toFixed(1) + ' s' : 'N/A'}</td>
+                </tr>
+                <tr>
+                    <td><strong>Wave Direction:</strong></td>
+                    <td>${directionStr} (${currentDirection !== null ? currentDirection.toFixed(0) + '°' : 'N/A'})</td>
+                </tr>
+            </table>
+        </div>
+        <div style="padding: 10px; background: #f0f7ff; border-radius: 4px;">
+            <div style="font-weight: bold; margin-bottom: 5px; color: #1e3c72;">10-Day Forecast Summary</div>
+            <table style="width: 100%; font-size: 13px;">
+                <tr>
+                    <td><strong>Max Wave Height:</strong></td>
+                    <td>${maxSwh.toFixed(2)} m</td>
+                </tr>
+                <tr>
+                    <td><strong>Average Height:</strong></td>
+                    <td>${avgSwh} m</td>
+                </tr>
+                <tr>
+                    <td><strong>Forecast Hours:</strong></td>
+                    <td>${timeseriesData.time.length}</td>
+                </tr>
+            </table>
+        </div>
+    `;
+
     // Create chart
     createForecastChart(timeseriesData.time, swh, perpw, dirpw);
+}
+
+// Convert direction degrees to compass direction
+function getDirectionString(degrees) {
+    const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+    const index = Math.round(degrees / 22.5) % 16;
+    return directions[index];
 }
 
 // Close forecast panel
@@ -259,26 +313,45 @@ function createForecastChart(times, swh, perpw, dirpw) {
         forecastChart.destroy();
     }
 
-    // Parse times
-    const labels = times.map(t => new Date(t).toLocaleDateString() + ' ' + new Date(t).toLocaleTimeString());
+    // Parse times to Date objects
+    const dateObjects = times.map(t => new Date(t));
+
+    // Create readable labels - show date every 24 hours, otherwise just time
+    const labels = dateObjects.map((d, i) => {
+        const hours = d.getHours();
+        if (hours === 0 || i === 0) {
+            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + '\n' +
+                   d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        } else {
+            return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        }
+    });
 
     const datasets = [{
-        label: 'Significant Wave Height (m)',
+        label: 'Significant Wave Height',
         data: swh,
         borderColor: '#1e3c72',
         backgroundColor: 'rgba(30, 60, 114, 0.1)',
+        fill: true,
         yAxisID: 'y',
-        tension: 0.4
+        tension: 0.3,
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 4
     }];
 
     if (perpw && perpw.some(v => v !== null)) {
         datasets.push({
-            label: 'Wave Period (s)',
+            label: 'Wave Period',
             data: perpw,
             borderColor: '#2a5298',
             backgroundColor: 'rgba(42, 82, 152, 0.1)',
+            fill: false,
             yAxisID: 'y1',
-            tension: 0.4
+            tension: 0.3,
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 4
         });
     }
 
@@ -295,14 +368,62 @@ function createForecastChart(times, swh, perpw, dirpw) {
                 mode: 'index',
                 intersect: false,
             },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: {
+                        usePointStyle: true,
+                        padding: 15
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        title: function(context) {
+                            const index = context[0].dataIndex;
+                            return dateObjects[index].toLocaleString();
+                        },
+                        label: function(context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.parsed.y !== null) {
+                                label += context.parsed.y.toFixed(2);
+                                label += context.datasetIndex === 0 ? ' m' : ' s';
+                            }
+                            return label;
+                        }
+                    }
+                }
+            },
             scales: {
+                x: {
+                    ticks: {
+                        maxRotation: 45,
+                        minRotation: 0,
+                        autoSkip: true,
+                        maxTicksLimit: 20
+                    },
+                    grid: {
+                        display: true,
+                        color: 'rgba(0, 0, 0, 0.05)'
+                    }
+                },
                 y: {
                     type: 'linear',
                     display: true,
                     position: 'left',
                     title: {
                         display: true,
-                        text: 'Wave Height (m)'
+                        text: 'Wave Height (m)',
+                        font: {
+                            weight: 'bold'
+                        }
+                    },
+                    beginAtZero: true,
+                    grid: {
+                        color: 'rgba(30, 60, 114, 0.1)'
                     }
                 },
                 y1: {
@@ -311,8 +432,12 @@ function createForecastChart(times, swh, perpw, dirpw) {
                     position: 'right',
                     title: {
                         display: true,
-                        text: 'Period (s)'
+                        text: 'Period (s)',
+                        font: {
+                            weight: 'bold'
+                        }
                     },
+                    beginAtZero: true,
                     grid: {
                         drawOnChartArea: false,
                     },
@@ -386,11 +511,10 @@ class ParticleSystem {
     }
 
     animate() {
-        if (this.enabled && this.data) {
-            // Fade previous frame instead of clearing
-            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.03)';
-            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        // Clear canvas completely to show map underneath
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
+        if (this.enabled && this.data) {
             this.particles.forEach(particle => {
                 // Convert particle screen position to lat/lon
                 const point = map.containerPointToLatLng([particle.x, particle.y - 60]);
@@ -428,10 +552,16 @@ class ParticleSystem {
                     // Draw particle trail
                     if (particle.prevX !== null && particle.age < this.maxAge) {
                         const alpha = Math.max(0, 1 - particle.age / this.maxAge);
-                        const intensity = Math.min(1, waveData.magnitude / 10);
 
-                        this.ctx.strokeStyle = `rgba(255, 255, 255, ${alpha * 0.5})`;
-                        this.ctx.lineWidth = 1.5;
+                        // Color based on wave height - blue for small, white for large
+                        const intensity = Math.min(1, waveData.magnitude / 8);
+                        const r = Math.floor(100 + 155 * intensity);
+                        const g = Math.floor(150 + 105 * intensity);
+                        const b = 255;
+
+                        this.ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${alpha * 0.8})`;
+                        this.ctx.lineWidth = 2;
+                        this.ctx.lineCap = 'round';
                         this.ctx.beginPath();
                         this.ctx.moveTo(particle.prevX, particle.prevY);
                         this.ctx.lineTo(particle.x, particle.y);
@@ -457,10 +587,6 @@ class ParticleSystem {
                     particle.prevY = null;
                 }
             });
-        } else if (!this.enabled) {
-            // Gradually fade out when disabled
-            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
-            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         }
 
         this.animationId = requestAnimationFrame(() => this.animate());
